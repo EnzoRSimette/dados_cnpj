@@ -178,6 +178,10 @@ class Server {
             .filter((l) => l.length === 14); // CNPJ sem formatação tem 14 dígitos
     }
 
+    verExtensao(filename) {
+        return filename.split(".").pop();
+    }
+
     criarRotas() {
         // Rota raiz: retorna todas as empresas salvas no banco
         this.#app.get("/empresas", (req, res) => {
@@ -202,25 +206,27 @@ class Server {
             "/arquivo",
             this.upload.single("arquivo"),
             async (req, res) => {
+                if (this.verExtensao(req.file.filename) !== "txt") {
+                    return res.status(415).json({
+                        sucesso: false,
+                        erro: "O arquivo enviado não é .txt",
+                    });
+                }
                 if (!req.file) {
-                    return res
-                        .status(400)
-                        .json({
-                            sucesso: false,
-                            erro: "Nenhum arquivo enviado",
-                        });
+                    return res.status(400).json({
+                        sucesso: false,
+                        erro: "Nenhum arquivo enviado",
+                    });
                 }
 
                 const cnpjs = this.normalizarTxt(
                     req.file.buffer.toString("utf-8"),
                 );
                 if (cnpjs.length === 0) {
-                    return res
-                        .status(400)
-                        .json({
-                            sucesso: false,
-                            erro: "Nenhum CNPJ válido encontrado no arquivo",
-                        });
+                    return res.status(400).json({
+                        sucesso: false,
+                        erro: "Nenhum CNPJ válido encontrado no arquivo",
+                    });
                 }
 
                 const resultados = [];

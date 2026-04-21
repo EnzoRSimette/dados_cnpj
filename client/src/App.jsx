@@ -61,7 +61,7 @@ function App() {
     const navigate = useNavigate();
     const [hasFiles, setHasFiles] = useState(false);
     const [files, setFiles] = useState([]);
-    const [ativo, setAtivo] = useState(false);
+    const [ativo, setAtivo] = useState(false); // ignore
     const [loading, setLoading] = useState(false);
     const [erro, setErro] = useState(null);
 
