@@ -104,10 +104,11 @@ class Server {
                     const data = await this.getDados(cnpj);
                     informacoesCnpjs[cnpj] = data;
                     this.inserirDadosEmpresas(data);
-                    const cnpjEmpresa = data.target.cnpj.value;
+                    if (Array.isArray(data.qsa)) {
                     data.qsa.forEach((socio) => {
-                        this.inserirDadosSocios(socio, cnpjEmpresa);
+                        this.inserirDadosSocios(socio, cnpj);
                     });
+                    }
                 }
 
                 res.send({ status: "ok", data: informacoesCnpjs });
@@ -116,6 +117,7 @@ class Server {
     }
 
     inserirDadosEmpresas(data) {
+        if (data.erro) continue;
         const query = this.#db.prepare(`--sql
             INSERT OR IGNORE INTO empresas (
                 cnpj,
@@ -163,6 +165,7 @@ class Server {
     }
 
     inserirDadosSocios(data, cnpjEmpresa) {
+        if (data.erro) continue;
         const query = this.#db.prepare(`--sql
             INSERT INTO socios (
                 cnpj_empresa,
@@ -183,6 +186,33 @@ class Server {
         } catch (e) {
             console.log(e);
         }
+    }
+
+    consultarDadosTodasEmpresas() {
+        const query = this.#db.prepare(`--sql;
+            SELECT * FROM empresas;
+        `);
+        try { const response = query.all(); }
+        catch (e) { console.log(e) }
+        return response;
+    }
+
+    consultarDadosCnpjEspecifico(cnpj) {
+        const query = this.#db.prepare(`--sql;
+            SELECT * FROM empresas WHERE cnpj = (?)
+        `);
+        try { const response = query.get(cnpj); }
+        catch (e) {console.log(e)}
+        return response;
+    }
+
+    consultarDadosSocios(cnpj) {
+        const query = this.#db.prepare(`--sql;
+            SELECT * FROM socios WHERE cnpj_empresa = (?);
+        `);
+        try { const response = query.run(cnpj); }
+        catch (e) { console.log(e) }
+        return response;
     }
 
     normalizarTxtComArray(data) {
