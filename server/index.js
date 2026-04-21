@@ -1,29 +1,30 @@
 import express from "express";
-import cors from "cors"; // Importante!
-import fs, { readFile } from "fs";
+import cors from "cors";
 import multer from "multer";
 import Database from "better-sqlite3";
 
 class Server {
     #db;
     #app;
+
     constructor(port) {
         this.#app = express();
         this.#db = new Database("dados_empresas.db");
         this.#db.pragma("foreign_keys = ON");
-        this.#app.use(cors()); // Libera o acesso para o React
+        this.#app.use(cors());
         this.#app.use(express.json());
         this.upload = multer({ storage: multer.memoryStorage() });
-        this.criarRotas();
         this.criarTabelas();
+        this.criarRotas();
         this.#app.listen(port, () =>
             console.log(`Servidor rodando em http://localhost:${port}`),
         );
     }
 
     criarTabelas() {
-        const empresas = this.#db.prepare(`--sql;
-            CREATE TABLE IF NOT EXISTS empresas (
+        this.#db
+            .prepare(
+                `CREATE TABLE IF NOT EXISTS empresas (
                 cnpj TEXT PRIMARY KEY,
                 razao_social TEXT,
                 nome_fantasia TEXT,
@@ -31,116 +32,72 @@ class Server {
                 municipio TEXT,
                 logradouro TEXT,
                 numero TEXT,
+                complemento TEXT,
                 bairro TEXT,
                 cep TEXT,
                 cnae_fiscal INTEGER,
-                cnae_descricao TEXT,
+                cnae_fiscal_descricao TEXT,
                 capital_social REAL,
                 porte TEXT,
                 natureza_juridica TEXT,
                 situacao_cadastral INTEGER,
                 descricao_situacao_cadastral TEXT,
-                data_inicio_atividade TEXT
-            );
-        `);
-        const socios = this.#db.prepare(`--sql;
-            CREATE TABLE IF NOT EXISTS socios (
+                data_inicio_atividade TEXT,
+                ddd_telefone_1 TEXT,
+                email TEXT
+            )`,
+            )
+            .run();
+
+        this.#db
+            .prepare(
+                `CREATE TABLE IF NOT EXISTS socios (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 cnpj_empresa TEXT,
-                FOREIGN KEY (cnpj_empresa) REFERENCES empresas(cnpj),
                 nome_socio TEXT,
-                qualificacao TEXT,
-                data_entrada TEXT
-            );
-        `);
-        try {
-            empresas.run();
-            socios.run();
-            console.log("Tabelas criadas!");
-        } catch (e) {
-            console.log(e);
-        }
+                qualificacao_socio TEXT,
+                data_entrada_sociedade TEXT,
+                faixa_etaria TEXT,
+                pais TEXT,
+                FOREIGN KEY (cnpj_empresa) REFERENCES empresas(cnpj)
+            )`,
+            )
+            .run();
+
+        console.log("Tabelas prontas.");
     }
 
     async getDados(cnpj) {
         try {
             const response = await fetch(
                 `https://brasilapi.com.br/api/cnpj/v1/${cnpj}`,
-                {
-                    headers: {
-                        "User-Agent": "MeuApp/1.0",
-                    },
-                },
+                { headers: { "User-Agent": "PeschelApp/1.0" } },
             );
-            if (!response.ok)
-                return { erro: "CNPJ não encontrado", status: response.status };
+            if (!response.ok) {
+                return {
+                    erro: `CNPJ ${cnpj} não encontrado`,
+                    status: response.status,
+                };
+            }
             return await response.json();
         } catch (err) {
-            return { erro: "Falha na conexão com a API" };
+            return { erro: `Falha na conexão: ${err.message}` };
         }
     }
 
-    criarRotas() {
-        // Rota que o React vai chamar
-        this.#app.get("/:cnpj", async (req, res) => {
-            const data = await this.getDados(req.params.cnpj);
-            res.json({ sucesso: true, dados: data });
-        });
-
-        this.#app.post(
-            "/arquivo",
-            this.upload.single("arquivo"),
-            async (req, res) => {
-                if (!req.file) {
-                    return res
-                        .status(400)
-                        .json({ erro: "Nenhum arquivo enviado" });
-                }
-                const txtData = req.file.buffer.toString("utf-8");
-
-                const arrayCnpjs = this.normalizarTxtComArray(txtData);
-                let informacoesCnpjs = {};
-                for (const cnpj of arrayCnpjs) {
-                    const data = await this.getDados(cnpj);
-                    informacoesCnpjs[cnpj] = data;
-                    this.inserirDadosEmpresas(data);
-                    if (Array.isArray(data.qsa)) {
-                    data.qsa.forEach((socio) => {
-                        this.inserirDadosSocios(socio, cnpj);
-                    });
-                    }
-                }
-
-                res.send({ status: "ok", data: informacoesCnpjs });
-            },
-        );
-    }
-
-    inserirDadosEmpresas(data) {
-        if (data.erro) continue;
-        const query = this.#db.prepare(`--sql
-            INSERT OR IGNORE INTO empresas (
-                cnpj,
-                razao_social,
-                nome_fantasia,
-                uf,
-                municipio,
-                logradouro,
-                numero,
-                bairro,
-                cep,
-                cnae_fiscal,
-                cnae_descricao,
-                capital_social,
-                porte,
-                natureza_juridica,
-                situacao_cadastral,
-                descricao_situacao_cadastral,
-                data_inicio_atividade
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        `);
-        try {
-            query.run(
+    inserirEmpresa(data) {
+        if (!data || data.erro) return false;
+        this.#db
+            .prepare(
+                `INSERT OR REPLACE INTO empresas (
+                cnpj, razao_social, nome_fantasia, uf, municipio,
+                logradouro, numero, complemento, bairro, cep,
+                cnae_fiscal, cnae_fiscal_descricao, capital_social, porte,
+                natureza_juridica, situacao_cadastral, descricao_situacao_cadastral,
+                data_inicio_atividade, ddd_telefone_1, email
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            )
+            .run(
                 data.cnpj,
                 data.razao_social,
                 data.nome_fantasia,
@@ -148,87 +105,149 @@ class Server {
                 data.municipio,
                 data.logradouro,
                 data.numero,
+                data.complemento ?? null,
                 data.bairro,
                 data.cep,
-                data.cnae_fiscal,
-                data.cnae_descricao,
-                data.capital_social,
-                data.porte,
-                data.natureza_juridica,
-                data.situacao_cadastral,
-                data.descricao_situacao_cadastral,
-                data.data_inicio_atividade,
+                data.cnae_fiscal ?? null,
+                data.cnae_fiscal_descricao ?? null,
+                data.capital_social ?? null,
+                data.porte ?? null,
+                data.natureza_juridica ?? null,
+                data.situacao_cadastral ?? null,
+                data.descricao_situacao_cadastral ?? null,
+                data.data_inicio_atividade ?? null,
+                data.ddd_telefone_1 ?? null,
+                data.email ?? null,
             );
-        } catch (e) {
-            console.log(e);
+        return true;
+    }
+
+    inserirSocios(qsa, cnpj) {
+        if (!Array.isArray(qsa) || qsa.length === 0) return;
+        // Limpa sócios antigos antes de reinserir (evita duplicatas em re-consulta)
+        this.#db.prepare(`DELETE FROM socios WHERE cnpj_empresa = ?`).run(cnpj);
+
+        const stmt = this.#db.prepare(
+            `INSERT INTO socios (cnpj_empresa, nome_socio, qualificacao_socio, data_entrada_sociedade, faixa_etaria, pais)
+             VALUES (?,?,?,?,?,?)`,
+        );
+        for (const socio of qsa) {
+            stmt.run(
+                cnpj,
+                socio.nome_socio ?? null,
+                socio.qualificacao_socio ?? null,
+                socio.data_entrada_sociedade ?? null,
+                socio.faixa_etaria ?? null,
+                socio.pais ?? null,
+            );
         }
     }
 
-    inserirDadosSocios(data, cnpjEmpresa) {
-        if (data.erro) continue;
-        const query = this.#db.prepare(`--sql
-            INSERT INTO socios (
-                cnpj_empresa,
-                nome_socio,
-                qualificacao,
-                data_entrada
-            ) VALUES (
-                ?,?,?,?
-            )
-        `);
+    salvarTudo(data) {
+        if (!data || data.erro) return;
+        const salvar = this.#db.transaction((d) => {
+            this.inserirEmpresa(d);
+            this.inserirSocios(d.qsa ?? [], d.cnpj);
+        });
         try {
-            query.run(
-                cnpjEmpresa,
-                data.nome_socio,
-                data.qualificacao_socio,
-                data.data_entrada_sociedade,
-            );
+            salvar(data);
         } catch (e) {
-            console.log(e);
+            console.error(`Erro ao salvar ${data.cnpj}:`, e.message);
         }
     }
 
-    consultarDadosTodasEmpresas() {
-        const query = this.#db.prepare(`--sql;
-            SELECT * FROM empresas;
-        `);
-        try { const response = query.all(); }
-        catch (e) { console.log(e) }
-        return response;
-    }
-
-    consultarDadosCnpjEspecifico(cnpj) {
-        const query = this.#db.prepare(`--sql;
-            SELECT * FROM empresas WHERE cnpj = (?)
-        `);
-        try { const response = query.get(cnpj); }
-        catch (e) {console.log(e)}
-        return response;
-    }
-
-    consultarDadosSocios(cnpj) {
-        const query = this.#db.prepare(`--sql;
-            SELECT * FROM socios WHERE cnpj_empresa = (?);
-        `);
-        try { const response = query.run(cnpj); }
-        catch (e) { console.log(e) }
-        return response;
-    }
-
-    normalizarTxtComArray(data) {
-        return data
-            .split("\n")
-            .map((element) => this.normalizarCnpj(element))
-            .filter((element) => element);
+    // Retorna todas as empresas com seus sócios em formato de array
+    buscarTodasEmpresas() {
+        const empresas = this.#db.prepare(`SELECT * FROM empresas`).all();
+        return empresas.map((empresa) => {
+            const socios = this.#db
+                .prepare(`SELECT * FROM socios WHERE cnpj_empresa = ?`)
+                .all(empresa.cnpj);
+            return { ...empresa, qsa: socios };
+        });
     }
 
     normalizarCnpj(cnpj) {
-        const newCnpjNormalized = cnpj
-            .trim()
-            .replaceAll(".", "")
-            .replaceAll("/", "")
-            .replaceAll("-", "");
-        return newCnpjNormalized;
+        return cnpj.trim().replace(/[\.\-\/]/g, "");
+    }
+
+    normalizarTxt(txt) {
+        return txt
+            .split("\n")
+            .map((l) => this.normalizarCnpj(l))
+            .filter((l) => l.length === 14); // CNPJ sem formatação tem 14 dígitos
+    }
+
+    criarRotas() {
+        // Rota raiz: retorna todas as empresas salvas no banco
+        this.#app.get("/empresas", (req, res) => {
+            try {
+                const empresas = this.buscarTodasEmpresas();
+                res.json({ sucesso: true, dados: empresas });
+            } catch (e) {
+                res.status(500).json({ sucesso: false, erro: e.message });
+            }
+        });
+
+        // Consulta CNPJ único na BrasilAPI (e salva no banco)
+        this.#app.get("/cnpj/:cnpj", async (req, res) => {
+            const cnpj = this.normalizarCnpj(req.params.cnpj);
+            const data = await this.getDados(cnpj);
+            if (!data.erro) this.salvarTudo(data);
+            res.json({ sucesso: !data.erro, dados: data });
+        });
+
+        // Upload de arquivo .txt com lista de CNPJs
+        this.#app.post(
+            "/arquivo",
+            this.upload.single("arquivo"),
+            async (req, res) => {
+                if (!req.file) {
+                    return res
+                        .status(400)
+                        .json({
+                            sucesso: false,
+                            erro: "Nenhum arquivo enviado",
+                        });
+                }
+
+                const cnpjs = this.normalizarTxt(
+                    req.file.buffer.toString("utf-8"),
+                );
+                if (cnpjs.length === 0) {
+                    return res
+                        .status(400)
+                        .json({
+                            sucesso: false,
+                            erro: "Nenhum CNPJ válido encontrado no arquivo",
+                        });
+                }
+
+                const resultados = [];
+                const erros = [];
+
+                for (const cnpj of cnpjs) {
+                    const data = await this.getDados(cnpj);
+                    if (data.erro) {
+                        erros.push({ cnpj, erro: data.erro });
+                    } else {
+                        this.salvarTudo(data);
+                        resultados.push(data);
+                    }
+                }
+
+                console.log(
+                    `Processados: ${resultados.length} OK, ${erros.length} erros`,
+                );
+                res.json({
+                    sucesso: true,
+                    processados: resultados.length,
+                    erros: erros.length,
+                    detalhes_erros: erros,
+                    dados: resultados, // array de empresas para o Dashboard
+                });
+            },
+        );
     }
 }
 
